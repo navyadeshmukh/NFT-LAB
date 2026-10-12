@@ -1,6 +1,6 @@
-# nft_lab_rnn: Comprehensive Deep Learning Suite for Sentiment Analysis with RNN, LSTM, and GRU
+# NFT-LAB: Deep Learning Suite for Sequential Models (RNN, LSTM, GRU) and Graph Neural Networks (GNN / GCN)
 
-An educational and production-grade deep learning repository implementing, analyzing, and benchmarking **Recurrent Neural Networks (Vanilla RNN)**, **Long Short-Term Memory (LSTM)**, and **Gated Recurrent Units (GRU)** for Natural Language Processing (NLP) and Sentiment Analysis.
+An educational and production-grade deep learning repository implementing, analyzing, and benchmarking **Recurrent Neural Networks (Vanilla RNN)**, **Long Short-Term Memory (LSTM)**, **Gated Recurrent Units (GRU)**, and **Graph Convolutional Networks (GCN / GNN)** using PyTorch and PyTorch Geometric.
 
 ---
 
@@ -9,15 +9,22 @@ An educational and production-grade deep learning repository implementing, analy
    - [Vanilla Recurrent Neural Networks (RNN)](#1-vanilla-recurrent-neural-networks-rnn)
    - [Long Short-Term Memory (LSTM)](#2-long-short-term-memory-lstm)
    - [Gated Recurrent Unit (GRU)](#3-gated-recurrent-unit-gru)
+   - [Graph Convolutional Networks (GCN)](#4-graph-convolutional-networks-gcn)
 2. [Comparative Architecture Matrix](#comparative-architecture-matrix)
-3. [Sentiment Analysis Pipeline](#sentiment-analysis-pipeline)
+3. [Pipelines & Data Workflows](#pipelines--data-workflows)
+   - [Sentiment Analysis NLP Pipeline](#sentiment-analysis-nlp-pipeline)
+   - [Graph Semi-Supervised Node Classification Pipeline](#graph-semi-supervised-node-classification-pipeline)
 4. [Repository File Structure](#repository-file-structure)
 5. [Installation & Setup](#installation--setup)
 6. [Usage Guide](#usage-guide)
-   - [Training Individual Architectures](#training-individual-architectures)
+   - [Training Sequential Models (RNN, LSTM, GRU)](#training-sequential-models)
    - [Comparative Benchmarking Suite](#comparative-benchmarking-suite)
    - [Multi-Sentence Inference & Evaluation](#multi-sentence-inference--evaluation)
-7. [Benchmark & Multi-Sentence Results](#benchmark--multi-sentence-results)
+   - [Training Graph Convolutional Network (GCN on Cora)](#training-graph-convolutional-network-gcn-on-cora)
+7. [Benchmark & Experimental Results](#benchmark--experimental-results)
+   - [NLP Sentiment Models Benchmark](#1-nlp-sentiment-models-benchmark)
+   - [GCN Cora Node Classification Benchmark](#2-gcn-cora-node-classification-benchmark)
+   - [Sample Test Node Predictions](#3-sample-test-node-predictions)
 8. [Git Integration & Remote Sync](#git-integration--remote-sync)
 
 ---
@@ -175,60 +182,113 @@ flowchart TD
 
 ---
 
-## Comparative Architecture Matrix
+### 4. Graph Convolutional Networks (GCN)
 
-| Metric / Dimension | Vanilla RNN | LSTM | GRU |
-|---|---|---|---|
-| **Gates Count** | 0 (No gates) | 3 (Forget, Input, Output) | 2 (Reset, Update) |
-| **Internal States** | Hidden state \(h_t\) only | Cell state \(C_t\) + Hidden state \(h_t\) | Hidden state \(h_t\) only |
-| **Formula Parameter Cost** | \(\mathcal{O}(d \cdot h + h^2)\) | \(4 \times \mathcal{O}(d \cdot h + h^2)\) | \(3 \times \mathcal{O}(d \cdot h + h^2)\) |
-| **Parameters Relative to LSTM**| ~25% | 100% (Baseline) | ~75% (25% fewer parameters) |
-| **Vanishing Gradient Resistance** | Poor (struggles beyond 10-15 steps) | Excellent (Long sequence memory) | Excellent (Long sequence memory) |
-| **Training Speed & Efficiency** | Fastest (computationally trivial) | Slower (most matrix operations) | Fast (~20-30% faster than LSTM) |
-| **Best Applied To** | Simple toy sequences, baselines | Long sequences, complex syntax | Medium-to-large datasets, low compute |
+While RNNs and Transformers model sequential and grid data, real-world data like citation graphs, molecules, and social networks are non-Euclidean graphs $\mathcal{G} = (\mathcal{V}, \mathcal{E})$.
+
+Introduced by Thomas Kipf and Max Welling (ICLR 2017), the **Graph Convolutional Network (GCN)** approximates first-order localized spectral convolutions on graphs.
+
+#### Mathematical Formulation
+
+For an undirected graph with adjacency matrix $A \in \{0, 1\}^{N \times N}$ and node feature matrix $X \in \mathbb{R}^{N \times F}$:
+
+1. **Self-Loop Augmentation**: Add self-connections so a node's representation retains its own features during aggregation:
+   $$\tilde{A} = A + I_N$$
+
+2. **Degree Normalization**: Calculate the diagonal degree matrix $\tilde{D}_{ii} = \sum_j \tilde{A}_{ij}$ and apply symmetric normalization to avoid vanishing or exploding feature scales:
+   $$\hat{A} = \tilde{D}^{-\frac{1}{2}} \tilde{A} \tilde{D}^{-\frac{1}{2}}$$
+
+3. **Layer Propagation Rule**:
+   $$H^{(l+1)} = \sigma \left( \hat{A} H^{(l)} W^{(l)} \right)$$
+
+   In node-wise message passing notation:
+   $$h_v^{(l+1)} = \sigma \left( \sum_{u \in \mathcal{N}(v) \cup \{v\}} \frac{1}{\sqrt{\tilde{d}_v \tilde{d}_u}} W^{(l)} h_u^{(l)} \right)$$
+
+Where:
+- $H^{(0)} = X$ (initial input node features).
+- $W^{(l)} \in \mathbb{R}^{d_l \times d_{l+1}}$ is the layer weight matrix.
+- $\sigma(\cdot)$ is an activation function (e.g., ReLU for hidden layers, softmax for logits).
+- $\mathcal{N}(v)$ represents the set of 1-hop neighboring nodes connected to node $v$.
+
+#### Graph Convolution Information Flow
+```mermaid
+flowchart TD
+    subgraph GCN_Layer ["GCN 2-Hop Message Passing"]
+        direction TB
+        N2["2-Hop Neighbors: u ∈ N2(v)"] -->|Hop 1 Aggregate| N1["1-Hop Neighbors: u ∈ N(v)"]
+        N1 -->|Hop 2 Aggregate| Target["Target Node v"]
+        TargetSelf["Self Features: h_v(l)"] --> Target
+        Target --> Norm["Symmetric Normalization: D^(-1/2) * A~ * D^(-1/2)"]
+        Norm --> Linear["Trainable Projection: W(l)"]
+        Linear --> Act["Activation: ReLU + Dropout"]
+        Act --> OutNode["Updated Representation: h_v(l+1)"]
+    end
+```
 
 ---
 
-## Sentiment Analysis Pipeline
+## Comparative Architecture Matrix
 
-Sentiment Analysis maps an arbitrary-length text sentence \(S = (w_1, w_2, \dots, w_T)\) to a binary sentiment polarity \(y \in \{0, 1\}\) (0 = Negative, 1 = Positive).
+| Metric / Dimension | Vanilla RNN | LSTM | GRU | Graph Convolutional Network (GCN) |
+|---|---|---|---|---|
+| **Data Domain** | 1D Sequential (NLP/Time-series) | 1D Sequential (NLP/Time-series) | 1D Sequential (NLP/Time-series) | Non-Euclidean Graphs (Nodes & Edges) |
+| **Gating Mechanism** | None | 3 Gates (Forget, Input, Output) | 2 Gates (Reset, Update) | Normalized Neighborhood Aggregation |
+| **Internal States** | Hidden state \(h_t\) | Cell state \(C_t\) + Hidden \(h_t\) | Hidden state \(h_t\) | Node feature embeddings \(H^{(l)}\) |
+| **Dependency Reach** | Short-range (~10 steps) | Long-range (>100 steps) | Long-range (>100 steps) | Multi-hop graph neighborhoods (k-hop) |
+| **Overfitting Risk** | High on small sequences | Moderate (regulated by gates) | Moderate (fewer parameters) | Regularized via Dropout & Weight Decay |
+| **Parameter Scale** | \(\mathcal{O}(d \cdot h + h^2)\) | \(4 \times \mathcal{O}(d \cdot h + h^2)\) | \(3 \times \mathcal{O}(d \cdot h + h^2)\) | \(\mathcal{O}(F_{\text{in}} \cdot F_{\text{out}})\) per conv layer |
+| **Primary Task in Repo** | Binary Sentiment Classification | Binary Sentiment Classification | Binary Sentiment Classification | Semi-Supervised Node Classification |
+
+---
+
+## Pipelines & Data Workflows
+
+### Sentiment Analysis NLP Pipeline
 
 ```mermaid
 flowchart LR
     Raw["Raw Text: 'The movie was amazing!'"] --> Tokenize["Tokenizer & Lowercase"]
     Tokenize --> VocabMap["Word-to-Index Vocab Mapping"]
     VocabMap --> Pad["Padding & Mini-batching"]
-    Pad --> Emb["Embedding Layer (Dense Vectors)"]
+    Pad --> Emb["Embedding Layer (d=64)"]
     Emb --> Recurrent["Encoder: RNN / LSTM / GRU"]
-    Recurrent --> Pooling["Last Hidden State / Pool"]
-    Pooling --> Linear["Linear Head (Dense Projection)"]
+    Recurrent --> Pooling["Last Hidden State"]
+    Pooling --> Linear["Linear Head"]
     Linear --> Sigmoid["Sigmoid: P(Positive) ∈ [0, 1]"]
 ```
 
-1. **Tokenization & Normalization**: Stripping noise, lowercase normalization, handling contractions (`don't`, `can't`).
-2. **Vocabulary Construction**: Generating mapping \(\text{word2idx}\) and \(\text{idx2word}\) with special tokens `<PAD>` (index 0) and `<UNK>` (index 1).
-3. **Embedding Layer**: Projects discrete token IDs into dense semantic space \(\mathbb{R}^{d}\) (\(d = 64\)).
-4. **Recurrent Representation**: Encodes ordered token embeddings sequentially; bidirectional models process sequences in forward (\(\vec{h}\)) and backward (\(\overleftarrow{h}\)) directions.
-5. **Classification Head**: Extracts the final context vector, applies dropout regularization, and projects via `nn.Linear(hidden_dim, 1)`.
-6. **Loss Function**: Binary Cross-Entropy with Logits:
-   $$\mathcal{L}_{\text{BCE}} = - [y \log \sigma(\hat{y}) + (1 - y) \log (1 - \sigma(\hat{y}))]$$
+### Graph Semi-Supervised Node Classification Pipeline
+
+```mermaid
+flowchart LR
+    Graph["Cora Graph: 2,708 Nodes, 10,556 Edges"] --> Split["Mask Splits: Train(140) / Val(500) / Test(1000)"]
+    Split --> Conv1["GCNConv1: 1433 features -> 64 hidden"]
+    Conv1 --> ReLU["ReLU + Dropout(0.5)"]
+    ReLU --> Conv2["GCNConv2: 64 hidden -> 7 class logits"]
+    Conv2 --> Loss["Cross-Entropy Loss (Masked on Train Nodes)"]
+    Loss --> Backprop["Adam Optimization + Best Val Checkpoint"]
+    Backprop --> TestEval["Unseen Test Node Evaluation: 80.90% Acc"]
+```
 
 ---
 
 ## Repository File Structure
 
 ```
-nft_lab_rnn/
-├── README.md                 # In-depth architectural theory, math, diagrams, and benchmarks
-├── requirements.txt          # Python dependencies (torch, numpy, etc.)
-├── .gitignore                # Ignoring checkpoints, caches, and virtual environments
-├── dataset.py                # Dataset, Tokenizer, Vocabulary, and DataLoader collate logic
+NFT-LAB/
+├── README.md                 # In-depth theoretical math, diagrams, usage, and benchmarks
+├── requirements.txt          # Python dependencies (torch, torch-geometric, numpy, etc.)
+├── .gitignore                # Ignores model weights (*.pt), cache, and raw dataset downloads
+├── dataset.py                # Text tokenizer, vocabulary builder, and PyTorch dataset logic
 ├── rnn_model.py              # Vanilla RNN implementation + standalone training script
 ├── lstm_model.py             # Bidirectional LSTM implementation + standalone training script
 ├── gru_model.py              # Bidirectional GRU implementation + standalone training script
-├── train_and_compare.py      # Unified benchmark training suite for all 3 models
+├── train_and_compare.py      # Unified benchmark training suite for sequential models
 ├── predict_sentences.py      # Multi-sentence evaluation & comparative breakdown
-└── sentiment_analysis.py     # Main CLI entrypoint to train, predict, or evaluate
+├── sentiment_analysis.py     # Main CLI entrypoint for sequential sentiment analysis
+├── gnn_model.py              # 2-Layer Graph Convolutional Network (GCN) architecture
+├── train_gnn.py              # GNN training pipeline on Cora dataset with test node inspection
+└── vocab.json                # Pre-built vocabulary mapping for text models
 ```
 
 ---
@@ -236,22 +296,29 @@ nft_lab_rnn/
 ## Installation & Setup
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.8+ (Tested on Python 3.12)
 - PyTorch 2.0+
+- PyTorch Geometric (`torch-geometric`)
 
-Clone the repository and install dependencies:
-```bash
-git clone https://github.com/kushagrakushwah/nft_lab_rnn.git
-cd nft_lab_rnn
-pip install -r requirements.txt
-```
+### Installation Steps
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/navyadeshmukh/NFT-LAB.git
+   cd NFT-LAB
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ---
 
 ## Usage Guide
 
-### Training Individual Architectures
-Each architecture is completely self-contained and can be trained independently:
+### Training Sequential Models
+Each sequential architecture can be trained independently on the sentiment dataset:
 
 - **Vanilla RNN**:
   ```bash
@@ -267,30 +334,37 @@ Each architecture is completely self-contained and can be trained independently:
   ```
 
 ### Comparative Benchmarking Suite
-To train all three architectures under identical hyperparameters (learning rate, seeds, optimizer, batch size, embedding dimension) and generate a benchmark comparison:
-
+To train all three sequential architectures under identical hyperparameters and generate a comparison report:
 ```bash
 python train_and_compare.py
 ```
 
 ### Multi-Sentence Inference & Evaluation
-To run inference on an extensive suite of test sentences (clear positive, clear negative, negations like *"not bad"*, and complex mixed-sentiment phrases) across all three models:
-
+To test all three NLP models on varied positive, negative, and edge-case sentences:
 ```bash
 python predict_sentences.py
 ```
 
-You can also pass arbitrary custom sentences via the command line:
+### Training Graph Convolutional Network (GCN on Cora)
+To train the GCN model on the Cora citation benchmark dataset:
 ```bash
-python predict_sentences.py "The movie was not good at all." "Incredible customer service, loved it!"
+python train_gnn.py
 ```
+
+The script will automatically:
+1. Download and process the Cora dataset into `data/Cora/`.
+2. Initialize the 2-layer GCN model (`1433 -> 64 -> 7`).
+3. Train for 200 epochs using Adam optimizer (`lr=0.01`, `weight_decay=5e-4`).
+4. Checkpoint the model state with the highest validation accuracy.
+5. Evaluate on the 1,000 unseen test nodes.
+6. Print individual predictions, ground truth labels, and confidence scores for test nodes.
 
 ---
 
-## Benchmark & Multi-Sentence Results
+## Benchmark & Experimental Results
 
-### 1. Training & Efficiency Benchmark
-All models were trained on the sentiment dataset under identical settings (Embedding Dim: 64, Hidden Dim: 64, Epochs: 25, Batch Size: 8):
+### 1. NLP Sentiment Models Benchmark
+Models trained on sentiment dataset with Embedding Dim: 64, Hidden Dim: 64, Epochs: 25, Batch Size: 8:
 
 | Model Architecture | Parameters | Train Acc | Val Acc | Training Time | Latency (per batch) |
 |---|---|---|---|---|---|
@@ -298,37 +372,96 @@ All models were trained on the sentiment dataset under identical settings (Embed
 | **LSTM (Bi-directional)** | 83,585 | 100.0% | 57.1% | ~17.5s | ~0.72ms |
 | **GRU (Bi-directional)** | 69,889 | 100.0% | 64.3% | ~11.2s | ~0.56ms |
 
-> **Key Observations**:
-> - **Vanilla RNN** memorizes training tokens rapidly but overfits heavily and fails to generalize on test sequences due to lack of gating and gradient attenuation.
-> - **LSTM** captures nuanced contexts effectively due to its dedicated cell state.
-> - **GRU** achieves the highest validation performance while utilizing **~16% fewer parameters** and running **~36% faster** than LSTM.
+---
 
-### 2. Multi-Sentence Prediction Breakdown
-Sample comparative evaluation across different sentence categories:
+### 2. GCN Cora Node Classification Benchmark
+The Graph Convolutional Network was trained on the **Cora** benchmark dataset:
 
-| # | Test Sentence | Expected | Vanilla RNN | Bidirectional LSTM | Bidirectional GRU |
-|---|---|---|---|---|---|
-| 1 | *"The user interface is slick, intuitive, and remarkably fast."* | **Positive** | Negative (26.5%) ✗ | Positive (99.8%) ✓ | Positive (99.5%) ✓ |
-| 2 | *"Horrible build quality, cheap flimsy plastic that cracked instantly."* | **Negative** | Negative (0.5%) ✓ | Negative (0.1%) ✓ | Negative (0.1%) ✓ |
-| 3 | *"The product was not good at all, completely failed expectations."* | **Negative** | Negative (1.2%) ✓ | Negative (0.2%) ✓ | Negative (0.3%) ✓ |
-| 4 | *"Not bad at all, actually quite pleasant and well made."* | **Positive** | Positive (99.8%) ✓ | Positive (89.4%) ✓ | Positive (92.1%) ✓ |
-| 5 | *"Despite the slow opening, the movie ended on a magnificent high note."* | **Positive** | Negative (18.2%) ✗ | Positive (94.7%) ✓ | Positive (96.3%) ✓ |
+| Dataset Metric | Value | Model / Training Setting | Value |
+|---|---|---|---|
+| **Graph Name** | Cora Citation Network | **Architecture** | 2-Layer GCN (`GCNConv`) |
+| **Total Nodes** | 2,708 scientific publications | **Hidden Units** | 64 |
+| **Total Edges** | 10,556 citation links | **Dropout** | 0.50 |
+| **Input Features** | 1,433 (sparse bag-of-words) | **Optimizer** | Adam (`lr=0.01`, `wd=5e-4`) |
+| **Target Classes** | 7 research topic classes | **Epochs** | 200 |
+| **Training Nodes** | 140 (20 nodes per class) | **Trainable Parameters** | 92,231 |
+| **Validation Nodes** | 500 nodes | **Best Val Accuracy** | **79.20%** |
+| **Test Nodes** | 1,000 nodes | **Test Accuracy** | **80.90%** |
+
+#### Training Progress Log
+```
+======================================================================
+   GRAPH CONVOLUTIONAL NETWORK (GCN) - CORA CITATION BENCHMARK
+======================================================================
+
+[1/5] Loading Cora dataset...
+Dataset:                  Cora
+Number of nodes:          2708
+Number of edges:          10556
+Number of node features:  1433
+Number of classes:        7
+Training nodes:           140
+Validation nodes:         500
+Test nodes:               1000
+
+[2/5] Initializing GCN Model & Optimizer...
+Device:                   cpu
+Trainable parameters:     92,231
+Optimizer:                Adam(lr=0.01, weight_decay=0.0005)
+Hidden channels:          64
+Dropout probability:      0.5
+
+[3/5] Starting Training Loop (200 Epochs)...
+Epoch: 020 | Loss: 0.0182 | Train Acc: 1.0000 | Val Accuracy: 0.7820
+Epoch: 040 | Loss: 0.0074 | Train Acc: 1.0000 | Val Accuracy: 0.7740
+Epoch: 060 | Loss: 0.0126 | Train Acc: 1.0000 | Val Accuracy: 0.7740
+Epoch: 080 | Loss: 0.0132 | Train Acc: 1.0000 | Val Accuracy: 0.7700
+Epoch: 100 | Loss: 0.0137 | Train Acc: 1.0000 | Val Accuracy: 0.7740
+Epoch: 120 | Loss: 0.0134 | Train Acc: 1.0000 | Val Accuracy: 0.7800
+Epoch: 140 | Loss: 0.0114 | Train Acc: 1.0000 | Val Accuracy: 0.7760
+Epoch: 160 | Loss: 0.0091 | Train Acc: 1.0000 | Val Accuracy: 0.7740
+Epoch: 180 | Loss: 0.0099 | Train Acc: 1.0000 | Val Accuracy: 0.7720
+Epoch: 200 | Loss: 0.0089 | Train Acc: 1.0000 | Val Accuracy: 0.7740
+
+[4/5] Evaluating Best Model Checkpoint...
+Saved best model checkpoint to 'cora_gcn_best.pt'
+
+Training completed.
+Best validation accuracy: 0.7920
+Test accuracy:            0.8090
+```
+
+---
+
+### 3. Sample Test Node Predictions
+
+Sample predictions on 10 unseen test nodes from the Cora graph:
+
+| Node ID | Predicted Class | Actual Class | Prediction Confidence | Status |
+|:---:|:---:|:---:|:---:|:---:|
+| 1708 | 1 | 3 | 70.23% | Mismatch |
+| 1709 | 2 | 2 | 99.11% | **Correct** |
+| 1710 | 2 | 2 | 86.78% | **Correct** |
+| 1711 | 2 | 2 | 99.90% | **Correct** |
+| 1712 | 2 | 2 | 98.34% | **Correct** |
+| 1713 | 0 | 0 | 67.72% | **Correct** |
+| 1714 | 2 | 2 | 99.53% | **Correct** |
+| 1715 | 2 | 2 | 99.90% | **Correct** |
+| 1716 | 2 | 2 | 98.90% | **Correct** |
+| 1717 | 2 | 2 | 99.82% | **Correct** |
 
 ---
 
 ## Git Integration & Remote Sync
 
-To initialize or push updates to GitHub:
+To commit and push updates to the repository:
 ```bash
-git init
 git add .
-git commit -m "feat: complete RNN, LSTM, GRU sentiment analysis suite"
-git branch -M main
-git remote add origin https://github.com/kushagrakushwah/nft_lab_rnn.git
-git push -u origin main
+git commit -m "feat: add Graph Convolutional Network (GCN) model, training pipeline, and benchmark on Cora"
+git push origin main
 ```
 
 ---
 
 ## License
-MIT License. Built for educational and research purposes in deep learning and NLP.
+MIT License. Built for educational and research exploration in Deep Learning, NLP, and Graph Representation Learning.
